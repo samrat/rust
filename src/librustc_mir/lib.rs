@@ -37,6 +37,7 @@ mod borrow_check;
 pub mod const_eval;
 pub mod dataflow;
 pub mod interpret;
+pub mod const_machine;
 pub mod monomorphize;
 mod shim;
 pub mod transform;

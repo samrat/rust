@@ -17,6 +17,8 @@ use crate::interpret::{
     OpTy, PlaceTy, Pointer, Scalar,
 };
 
+use crate::const_machine::ConstMachine;
+
 use super::error::*;
 
 impl<'mir, 'tcx> InterpCx<'mir, 'tcx, CompileTimeInterpreter> {
@@ -166,30 +168,9 @@ impl interpret::MayLeak for ! {
     }
 }
 
-impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for CompileTimeInterpreter {
-    type MemoryKind = !;
-    type PointerTag = ();
-    type ExtraFnVal = !;
-
-    type FrameExtra = ();
+impl<'mir, 'tcx> ConstMachine<'mir, 'tcx> for CompileTimeInterpreter {
     type MemoryExtra = MemoryExtra;
-    type AllocExtra = ();
-
-    type MemoryMap = FxHashMap<AllocId, (MemoryKind<!>, Allocation)>;
-
-    const GLOBAL_KIND: Option<!> = None; // no copying of globals from `tcx` to machine memory
-
-    #[inline(always)]
-    fn enforce_alignment(_memory_extra: &Self::MemoryExtra) -> bool {
-        // We do not check for alignment to avoid having to carry an `Align`
-        // in `ConstValue::ByRef`.
-        false
-    }
-
-    #[inline(always)]
-    fn enforce_validity(_ecx: &InterpCx<'mir, 'tcx, Self>) -> bool {
-        false // for now, we don't enforce validity
-    }
+    type ExtraFnVal = !;
 
     fn find_mir_or_eval_fn(
         ecx: &mut InterpCx<'mir, 'tcx, Self>,
@@ -240,12 +221,13 @@ impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for CompileTimeInterpreter {
     fn call_extra_fn(
         _ecx: &mut InterpCx<'mir, 'tcx, Self>,
         fn_val: !,
-        _args: &[OpTy<'tcx>],
-        _ret: Option<(PlaceTy<'tcx>, mir::BasicBlock)>,
+        _args: &[OpTy<'tcx, ()>],
+        _ret: Option<(PlaceTy<'tcx, ()>, mir::BasicBlock)>,
         _unwind: Option<mir::BasicBlock>,
     ) -> InterpResult<'tcx> {
         match fn_val {}
     }
+
 
     fn call_intrinsic(
         ecx: &mut InterpCx<'mir, 'tcx, Self>,
@@ -302,23 +284,27 @@ impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for CompileTimeInterpreter {
         _bin_op: mir::BinOp,
         _left: ImmTy<'tcx>,
         _right: ImmTy<'tcx>,
-    ) -> InterpResult<'tcx, (Scalar, bool, Ty<'tcx>)> {
+    ) -> InterpResult<'tcx, (Scalar<()>, bool, Ty<'tcx>)> {
         Err(ConstEvalErrKind::NeedsRfc("pointer arithmetic or comparison".to_string()).into())
     }
 
     #[inline(always)]
     fn init_allocation_extra<'b>(
-        _memory_extra: &MemoryExtra,
+        _memory_extra: &Self::MemoryExtra,
         _id: AllocId,
         alloc: Cow<'b, Allocation>,
         _kind: Option<MemoryKind<!>>,
-    ) -> (Cow<'b, Allocation<Self::PointerTag>>, Self::PointerTag) {
+    ) -> (Cow<'b, Allocation<()>>, ()) {
         // We do not use a tag so we can just cheaply forward the allocation
         (alloc, ())
     }
 
-    #[inline(always)]
-    fn tag_global_base_pointer(_memory_extra: &MemoryExtra, _id: AllocId) -> Self::PointerTag {}
+    // #[inline(always)]
+    fn tag_global_base_pointer(
+        _memory_extra: &Self::MemoryExtra,
+        _id: AllocId,
+    ) -> () {
+    }
 
     fn box_alloc(
         _ecx: &mut InterpCx<'mir, 'tcx, Self>,

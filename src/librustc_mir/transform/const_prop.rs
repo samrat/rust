@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::cell::Cell;
 
 use rustc_ast::ast::Mutability;
-use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def::DefKind;
 use rustc_hir::HirId;
 use rustc_index::vec::IndexVec;
@@ -34,6 +33,7 @@ use crate::interpret::{
     Pointer, ScalarMaybeUndef, StackPopCleanup,
 };
 use crate::transform::{MirPass, MirSource};
+use crate::const_machine::ConstMachine;
 
 /// The maximum number of bytes that we'll allocate space for a return value.
 const MAX_ALLOC_LIMIT: u64 = 1024;
@@ -160,28 +160,9 @@ impl<'tcx> MirPass<'tcx> for ConstProp {
 
 struct ConstPropMachine;
 
-impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for ConstPropMachine {
-    type MemoryKind = !;
-    type PointerTag = ();
-    type ExtraFnVal = !;
-
-    type FrameExtra = ();
+impl<'mir, 'tcx> ConstMachine<'mir, 'tcx> for ConstPropMachine {
     type MemoryExtra = ();
-    type AllocExtra = ();
-
-    type MemoryMap = FxHashMap<AllocId, (MemoryKind<!>, Allocation)>;
-
-    const GLOBAL_KIND: Option<!> = None; // no copying of globals from `tcx` to machine memory
-
-    #[inline(always)]
-    fn enforce_alignment(_memory_extra: &Self::MemoryExtra) -> bool {
-        false
-    }
-
-    #[inline(always)]
-    fn enforce_validity(_ecx: &InterpCx<'mir, 'tcx, Self>) -> bool {
-        false
-    }
+    type ExtraFnVal = !;
 
     fn find_mir_or_eval_fn(
         _ecx: &mut InterpCx<'mir, 'tcx, Self>,
@@ -241,13 +222,13 @@ impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for ConstPropMachine {
         _id: AllocId,
         alloc: Cow<'b, Allocation>,
         _kind: Option<MemoryKind<!>>,
-    ) -> (Cow<'b, Allocation<Self::PointerTag>>, Self::PointerTag) {
+    ) -> (Cow<'b, Allocation<()>>, ()) {
         // We do not use a tag so we can just cheaply forward the allocation
         (alloc, ())
     }
 
     #[inline(always)]
-    fn tag_global_base_pointer(_memory_extra: &(), _id: AllocId) -> Self::PointerTag {}
+    fn tag_global_base_pointer(_memory_extra: &(), _id: AllocId) {}
 
     fn box_alloc(
         _ecx: &mut InterpCx<'mir, 'tcx, Self>,
@@ -258,9 +239,9 @@ impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for ConstPropMachine {
 
     fn access_local(
         _ecx: &InterpCx<'mir, 'tcx, Self>,
-        frame: &Frame<'mir, 'tcx, Self::PointerTag, Self::FrameExtra>,
+        frame: &Frame<'mir, 'tcx, (), ()>,
         local: Local,
-    ) -> InterpResult<'tcx, InterpOperand<Self::PointerTag>> {
+    ) -> InterpResult<'tcx, InterpOperand<()>> {
         let l = &frame.locals[local];
 
         if l.value == LocalValue::Uninitialized {
@@ -273,7 +254,7 @@ impl<'mir, 'tcx> interpret::Machine<'mir, 'tcx> for ConstPropMachine {
     fn before_access_global(
         _memory_extra: &(),
         _alloc_id: AllocId,
-        allocation: &Allocation<Self::PointerTag, Self::AllocExtra>,
+        allocation: &Allocation<(), ()>,
         _static_def_id: Option<DefId>,
         is_write: bool,
     ) -> InterpResult<'tcx> {
